@@ -1,55 +1,38 @@
 package main
 import (
 	"fmt"
-	"log"
-	"net/http"
+    "net/http"
 
-	"github.com/gorilla/websocket"
+	"github.com/xkryssie/squad-chat-backend/pkg/websocket"
 )
 
-var upgrader = websocket.Upgrader{
-	ReadBufferSize: 1024,
-	WriteBufferSize: 1024,
-	CheckOrigin: func(r *http.Request) bool { return true },
-}
+func serveWs(pool *websocket.Pool, w http.ResponseWriter, r *http.Request) {
+    fmt.Println("WebSocket Endpoint Hit")
+    conn, err := websocket.Upgrade(w, r)
+    if err != nil {
+        fmt.Fprintf(w, "%+v\n", err)
+    }
 
-func reader(conn *websocket.Conn) {
-	for {
-		messageType, p, err := conn.ReadMessage()
-		if err != nil {
-			log.Println(err)
-			return
-		}
-		fmt.Println(string(p))
+    client := &websocket.Client{
+        Conn: conn,
+        Pool: pool,
+    }
 
-		if err := conn.WriteMessage(messageType, p); err != nil {
-			log.Println(err)
-			return
-		}
-	}
-}
-
-func serveWs(w http.ResponseWriter, r *http.Request) {
-	fmt.Println(r.Host)
-
-	ws, err := upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		log.Println(err)
-	}
-
-	reader(ws)
+    pool.Register <- client
+    client.Read()
 }
 
 func setupRoutes() {
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request){
-		fmt.Fprintf(w, "Simple Server")
-	})
+    pool := websocket.NewPool()
+    go pool.Start()
 
-	http.HandleFunc("/ws", serveWs)
+    http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+        serveWs(pool, w, r)
+    })
 }
 
-func main(){
-	fmt.Println("Chat App v0.01")
-	setupRoutes()
-	http.ListenAndServe(":8080", nil)
+func main() {
+    fmt.Println("Distributed Chat App v0.01")
+    setupRoutes()
+    http.ListenAndServe(":8080", nil)
 }
